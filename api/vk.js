@@ -23,6 +23,7 @@ const SYSTEM_PROMPT = `
 5. Не проси медицинские, паспортные, платёжные или другие лишние персональные данные.
 6. Если вопрос не относится к занятиям, вежливо верни разговор к английскому и записи в группу.
 7. В конце ответа предлагай один понятный следующий шаг.
+8. Показывай только готовый ответ родителю. Никогда не выводи рассуждения, служебные заметки, план ответа, слова «Take», «Next Step», «Reasoning» или инструкции для самого себя.
 `;
 
 const keyboard = JSON.stringify({
@@ -57,7 +58,7 @@ function protectContactDetails(text) {
 }
 
 async function askGemini(text) {
-  const model = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
+  const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
   const apiKey = requiredEnv("GEMINI_API_KEY");
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
@@ -76,7 +77,10 @@ async function askGemini(text) {
         parts: [{ text: protectContactDetails(text) }]
       }],
       generationConfig: {
-        maxOutputTokens: 500
+        maxOutputTokens: 500,
+        thinkingConfig: {
+          thinkingLevel: "minimal"
+        }
       }
     })
   });
@@ -88,11 +92,17 @@ async function askGemini(text) {
 
   const data = await response.json();
   const answer = data.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text || "")
+    ?.filter((part) => part.text && part.thought !== true)
+    .map((part) => part.text)
     .join("");
 
-  if (!answer) throw new Error("Gemini returned an empty answer");
-  return answer.trim().slice(0, 3000);
+  const cleanedAnswer = answer
+    ?.replace(/^\s*(?:Take|Next Step(?:\/Question)?|Reasoning)\s*[:*].*$/gim, "")
+    .trim();
+
+  if (!cleanedAnswer) throw new Error("Gemini returned an empty final answer");
+  return cleanedAnswer
+    .slice(0, 3000);
 }
 
 async function sendVkMessage(peerId, message) {

@@ -1,0 +1,15 @@
+{
+  "name": "bot-zapishi-online",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check api/vk.js"
+  },
+  "dependencies": {
+    "@vercel/functions": "^3.4.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

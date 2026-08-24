@@ -50,32 +50,48 @@ function requiredEnv(name) {
   return value;
 }
 
-async function askOpenAI(text) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
+function protectContactDetails(text) {
+  return text
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[электронная почта скрыта]")
+    .replace(/(?:\+7|8)[\s()\-]*\d(?:[\s()\-]*\d){9}/g, "[телефон скрыт]");
+}
+
+async function askGemini(text) {
+  const model = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
+  const apiKey = requiredEnv("GEMINI_API_KEY");
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${requiredEnv("OPENAI_API_KEY")}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-5",
-      instructions: SYSTEM_PROMPT,
-      input: text
+      system_instruction: {
+        parts: [{ text: SYSTEM_PROMPT }]
+      },
+      contents: [{
+        role: "user",
+        parts: [{ text: protectContactDetails(text) }]
+      }],
+      generationConfig: {
+        maxOutputTokens: 500
+      }
     })
   });
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`OpenAI API ${response.status}: ${detail.slice(0, 500)}`);
+    throw new Error(`Gemini API ${response.status}: ${detail.slice(0, 500)}`);
   }
 
   const data = await response.json();
-  const answer = data.output_text || data.output
-    ?.flatMap((item) => item.content || [])
-    .find((item) => item.type === "output_text")
-    ?.text;
+  const answer = data.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text || "")
+    .join("");
 
-  if (!answer) throw new Error("OpenAI returned an empty answer");
+  if (!answer) throw new Error("Gemini returned an empty answer");
   return answer.trim().slice(0, 3000);
 }
 
@@ -111,7 +127,7 @@ async function processMessage(message) {
   }
 
   try {
-    const answer = await askOpenAI(text);
+    const answer = await askGemini(text);
     await sendVkMessage(peerId, answer);
   } catch (error) {
     console.error("Message processing failed", error);
@@ -124,7 +140,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       service: "Играй и учись — VK AI bot",
-      configured: Boolean(process.env.VK_TOKEN && process.env.OPENAI_API_KEY)
+      configured: Boolean(process.env.VK_TOKEN && process.env.GEMINI_API_KEY)
     });
   }
 
